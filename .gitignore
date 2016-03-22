@@ -1,0 +1,10 @@
+.built*
+.spi*
+built*
+.tmp*
+Module*
+modules*
+*~
+*.o
+*.ko
+*.mod.*
