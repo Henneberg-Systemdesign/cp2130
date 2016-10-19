@@ -114,6 +114,7 @@ struct cp2130_device {
         struct work_struct irq_work;
 
 	struct gpio_chip gpio_chip;
+	char *gpio_names[CP2130_NUM_GPIOS];
 	u8 gpio_states[2];
 
         int current_channel;
@@ -1386,17 +1387,17 @@ static void cp2130_gpio_set_value(struct gpio_chip *gc, unsigned off, int val)
 	cp2130_gpio_direction_output(gc, off, val);
 }
 
-static const char* cp2130_gpio_names[] = { "_cs0",
-					   "_cs1",
-					   "_cs2",
-					   "_rtr",
-					   "event_counter",
-					   "clk_out",
-					   "gpi",
-					   "gpo",
-					   "activity",
-					   "suspend",
-					   "_suspend",
+static const char* cp2130_gpio_names[] = { "........-_cs0",
+					   "........-_cs1",
+					   "........-_cs2",
+					   "........-_rtr",
+					   "........-event_counter",
+					   "........-clk_out",
+					   "........-gpi",
+					   "........-gpo",
+					   "........-activity",
+					   "........-suspend",
+					   "........-_suspend",
 };
 
 int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
@@ -1484,8 +1485,13 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	gc->can_sleep = true;
 
 	gc->base = -1; /* auto */
-	gc->ngpio = 11;
-	gc->names = cp2130_gpio_names;
+	gc->ngpio = CP2130_NUM_GPIOS;
+	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
+		dev->gpio_names[i] = kstrdup(cp2130_gpio_names[i], GFP_KERNEL);
+		memcpy(dev->gpio_names[i],
+		       dev_name(&spi_master->dev), 3 + 5 /* spixxxxx */);
+	}
+	gc->names = (const char**) dev->gpio_names;
 	gc->label = dev_name(&spi_master->dev);
 	gc->owner = THIS_MODULE;
 
@@ -1549,6 +1555,9 @@ void cp2130_disconnect(struct usb_interface *intf)
 	usleep_range(i, i + 100); /* wait for worker to complete */
 
         cp2130_gpio_irq_remove(dev);
+	gpiochip_remove(&dev->gpio_chip);
+	for (i = 0; i < CP2130_NUM_GPIOS; i++)
+		kfree(dev->gpio_names[i]);
 
         /* remove sysfs files */
         device_remove_file(&intf->dev,
