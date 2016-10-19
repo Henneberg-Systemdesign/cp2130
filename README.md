@@ -13,7 +13,7 @@
                   plug the mcp251x CAN driver use
                   `echo -n 0,2,6,0,0,0,1,0,0,0,0,mcp2515 > /sys/.../channel_config`
                   or
-                  `echo -n 0,2,-1,1,1,1,0,0,0,0,0,spidev > /sys/.../channel_config`
+                  `echo -n 0,2,-1,1,1,1,0,0,0,0,0,spidev > /sys/.../channel_config` and
                   `echo -n 1,2,-1,1,1,1,0,0,0,0,0,spidev > /sys/.../channel_config`
   `               for 2 general purpose spidev without IRQ support.
                   For the values to be entered in the columns please
