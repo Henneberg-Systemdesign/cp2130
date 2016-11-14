@@ -768,7 +768,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                         continue;
                 }
 
-                urb = kzalloc(xfer->len + CP2130_BULK_OFFSET_LENGTH,
+                urb = kzalloc(xfer->len + CP2130_BULK_OFFSET_DATA,
                               GFP_KERNEL);
 
 		/* init length field */
