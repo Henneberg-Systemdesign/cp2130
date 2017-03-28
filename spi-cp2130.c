@@ -775,9 +775,10 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		*((u32*) (urb + CP2130_BULK_OFFSET_LENGTH)) =
 			__cpu_to_le32(xfer->len);
 
-		/* copy SPI data */
-		memcpy(urb + CP2130_BULK_OFFSET_DATA,
-		       xfer->tx_buf, xfer->len);
+		/* copy SPI tx data */
+		if (xfer->tx_buf)
+			memcpy(urb + CP2130_BULK_OFFSET_DATA,
+			       xfer->tx_buf, xfer->len);
 
 		/* prepare URB and submit sync
 		   CP2130 / AN792 p.7: 'any previous data transfer command
