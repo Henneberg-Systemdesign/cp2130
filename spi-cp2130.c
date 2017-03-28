@@ -813,10 +813,15 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		} else if (!xfer->tx_buf) {
 			/* prepare URB and submit sync */
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
-			/* usb read */
-			ret = usb_bulk_msg(dev->udev, recv_pipe, urb,
-					   CP2130_BULK_OFFSET_DATA + xfer->len,
+			/* usb write */
+			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
+					   CP2130_BULK_OFFSET_DATA,
 					   &len, 200);
+			if (ret)
+				goto err;
+			/* usb read */
+			ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf,
+					   xfer->len, &len, 200);
 			if (ret)
 				goto err;
 		}
