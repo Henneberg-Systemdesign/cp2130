@@ -824,6 +824,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                 kfree(urb);
 
 		udelay(xfer->delay_usecs);
+		mesg->actual_length += xfer->len;
         }
 
 err:
