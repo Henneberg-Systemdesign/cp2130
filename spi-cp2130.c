@@ -28,6 +28,7 @@
 #include <linux/irqdomain.h>
 #include <linux/irq.h>
 #include <linux/gpio.h>
+#include <linux/version.h>
 
 #define USB_DEVICE_ID_CP2130         0x87a0
 #define USB_VENDOR_ID_CYGNAL         0x10c4
@@ -182,6 +183,41 @@ static char* cp2130_spi_speed_to_string(int reg_val)
         case 7: return "93.8 kHz ";
         }
         return "";
+}
+
+/*
+ * This is a workaround for older versions of linux which do not have
+ * gpiochip_add(). In this module, the data parameter passed to
+ * gpiochip_add_data is always the struct cp2130_device that contains the struct
+ * gpio_chip that is passed as the first parameter. Based on this assumption we
+ * can simulate the correct behaviour using container_of() to get the struct
+ * cp2130_device from the struct gpio_chip.
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
+static inline struct cp2130_device *gpiochip_get_data(struct gpio_chip *chip)
+{
+	return container_of(chip, struct cp2130_device, gpio_chip);
+}
+
+static inline int gpiochip_add_data(struct gpio_chip *chip, void *data)
+{
+	return gpiochip_add(chip);
+}
+#endif
+
+/*
+ * This is a workaround for older versions of linux which have a __must_check
+ * return type of int on the gpiochip_remove() function.
+ */
+static inline void gpiochip_remove_(struct gpio_chip *chip)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+	if (gpiochip_remove(chip) < 0)
+		dev_err(&gpiochip_get_data(chip)->intf->dev,
+			"failed to remove GPIO chip");
+#else
+	gpiochip_remove(chip);
+#endif
 }
 
 static ssize_t channel_config_show(struct device *dev,
@@ -1555,7 +1591,7 @@ void cp2130_disconnect(struct usb_interface *intf)
 	usleep_range(i, i + 100); /* wait for worker to complete */
 
         cp2130_gpio_irq_remove(dev);
-	gpiochip_remove(&dev->gpio_chip);
+	gpiochip_remove_(&dev->gpio_chip);
 	for (i = 0; i < CP2130_NUM_GPIOS; i++)
 		kfree(dev->gpio_names[i]);
 
