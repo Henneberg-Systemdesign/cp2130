@@ -713,6 +713,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
         struct cp2130_device *dev =
 		(struct cp2130_device*) spi_master_get_devdata(master);
         char *urb;
+	size_t urb_len;
         char ctrl_urb[2] = { 0 };
         int len, ret, chn_id;
         struct cp2130_channel *chn;
@@ -757,7 +758,14 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                 dev->current_channel = chn_id;
         }
 
-        /* iterate through all transfers */
+	urb_len = CP2130_BULK_OFFSET_DATA;
+	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
+		if (xfer->tx_buf && ((xfer->len + CP2130_BULK_OFFSET_DATA) > urb_len))
+			urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
+	}
+	urb = kmalloc(urb_len, GFP_KERNEL);
+
+	/* iterate through all transfers */
 	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
 		dev_dbg(&master->dev, "spi transfer stats: %p, %p, %d",
 			xfer->tx_buf, xfer->rx_buf, xfer->len);
@@ -768,8 +776,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                         continue;
                 }
 
-                urb = kzalloc(xfer->len + CP2130_BULK_OFFSET_DATA,
-                              GFP_KERNEL);
+		memset(urb, 0, urb_len);
 
 		/* init length field */
 		*((u32*) (urb + CP2130_BULK_OFFSET_LENGTH)) =
@@ -827,13 +834,12 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 				goto err;
 		}
 
-                kfree(urb);
-
 		udelay(xfer->delay_usecs);
 		mesg->actual_length += xfer->len;
         }
 
 err:
+	kfree(urb);
         mutex_unlock(&dev->usb_bus_lock);
 	mesg->status = ret;
         if (ret)
