@@ -831,47 +831,37 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 
                 if (xfer->tx_buf && xfer->rx_buf) {
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_WRITEREAD;
-			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
-					   CP2130_BULK_OFFSET_DATA + xfer->len,
-					   &len, 200);
-			dev_dbg(&master->dev, "usb write %d", ret);
-			if (ret)
-				goto err;
-			/* usb read */
-			ret = usb_bulk_msg(dev->udev, recv_pipe,
-					   xfer->rx_buf, xfer->len,
-					   &len, 200);
-			dev_dbg(&master->dev, "usb read %d", ret);
-			if (ret)
-				goto err;
 		} else if (!xfer->rx_buf) {
 			/* prepare URB and submit sync */
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_WRITE;
-			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
-					   CP2130_BULK_OFFSET_DATA + xfer->len,
-					   &len, 200);
-			if (ret)
-				goto err;
 		} else if (!xfer->tx_buf) {
 			/* prepare URB and submit sync */
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
-			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
-					   CP2130_BULK_OFFSET_DATA,
-					   &len, 200);
-			if (ret)
-				goto err;
-			/* usb read */
-			ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf,
-					   xfer->len, &len, 200);
-			if (ret)
-				goto err;
 		}
 
-		udelay(xfer->delay_usecs);
-		mesg->actual_length += xfer->len;
+		/* usb write */
+		ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
+				   CP2130_BULK_OFFSET_DATA + xfer->len,
+				   &len, 200);
+		dev_dbg(&master->dev, "usb write %d", ret);
+		if (ret)
+			goto err;
+
+		if (xfer->rx_buf) {
+			for (mesg->actual_length = 0; mesg->actual_length < xfer->len;) {
+				/* usb read */
+				ret = usb_bulk_msg(dev->udev, recv_pipe,
+						   xfer->rx_buf + mesg->actual_length,
+						   xfer->len - mesg->actual_length, &len, 200);
+				dev_dbg(&master->dev, "usb read %d", ret);
+				if (ret)
+					goto err;
+
+				udelay(xfer->delay_usecs);
+				mesg->actual_length += len;
+			}
+                }
+
         }
 
 err:
