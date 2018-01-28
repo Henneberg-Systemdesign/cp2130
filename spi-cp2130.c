@@ -796,8 +796,9 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 
 	urb_len = CP2130_BULK_OFFSET_DATA;
 	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
-		if (xfer->tx_buf && ((xfer->len + CP2130_BULK_OFFSET_DATA) > urb_len))
-			urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
+                if (xfer->tx_buf &&
+                    ((xfer->len + CP2130_BULK_OFFSET_DATA) > urb_len))
+                        urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
 	}
 	urb = kmalloc(urb_len, GFP_KERNEL);
         if (!urb)
