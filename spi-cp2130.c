@@ -774,7 +774,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
         mutex_lock(&dev->usb_bus_lock);
 
         if (chn_id == CP2130_NUM_GPIOS)
-                goto err;
+                goto out;
 
 	xmit_ctrl_pipe = usb_sndctrlpipe(dev->udev, 0);
         if (chn_id != dev->current_channel) {
@@ -789,7 +789,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                         0, 0,
                         ctrl_urb, 2, 200);
                 if (ret < 2)
-                        goto err;
+                        goto out;
 
                 dev->current_channel = chn_id;
         }
@@ -800,6 +800,8 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 			urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
 	}
 	urb = kmalloc(urb_len, GFP_KERNEL);
+        if (!urb)
+                goto out;
 
 	/* iterate through all transfers */
 	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
@@ -837,14 +839,14 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 					   &len, 200);
 			dev_dbg(&master->dev, "usb write %d", ret);
 			if (ret)
-				goto err;
+				goto out;
 			/* usb read */
 			ret = usb_bulk_msg(dev->udev, recv_pipe,
 					   xfer->rx_buf, xfer->len,
 					   &len, 200);
 			dev_dbg(&master->dev, "usb read %d", ret);
 			if (ret)
-				goto err;
+				goto out;
 		} else if (!xfer->rx_buf) {
 			/* prepare URB and submit sync */
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_WRITE;
@@ -853,7 +855,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 					   CP2130_BULK_OFFSET_DATA + xfer->len,
 					   &len, 200);
 			if (ret)
-				goto err;
+				goto out;
 		} else if (!xfer->tx_buf) {
 			/* prepare URB and submit sync */
 			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
@@ -862,20 +864,21 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 					   CP2130_BULK_OFFSET_DATA,
 					   &len, 200);
 			if (ret)
-				goto err;
+				goto out;
 			/* usb read */
 			ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf,
 					   xfer->len, &len, 200);
 			if (ret)
-				goto err;
+				goto out;
 		}
 
 		udelay(xfer->delay_usecs);
 		mesg->actual_length += xfer->len;
         }
 
-err:
 	kfree(urb);
+
+out:
         mutex_unlock(&dev->usb_bus_lock);
 	mesg->status = ret;
         if (ret)
