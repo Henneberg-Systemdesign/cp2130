@@ -1472,7 +1472,7 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 
         dev = kzalloc(sizeof(struct cp2130_device), GFP_KERNEL);
         if (!dev)
-                goto err_out;
+                goto dev_err_out;
 
         dev->udev = udev;
         dev->intf = intf;
@@ -1498,7 +1498,6 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	}
 
         spi_master = spi_alloc_master(&udev->dev, sizeof(void*));
-
         if (!spi_master)
                 goto err_out;
 
@@ -1592,10 +1591,11 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
         return 0;
 
 err_out:
-        if (dev)
-                kfree(dev);
+        kfree(dev);
         if (spi_master)
                 kfree(spi_master);
+
+dev_err_out:
         return ret;
 }
 
