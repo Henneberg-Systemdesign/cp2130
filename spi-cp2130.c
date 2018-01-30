@@ -751,7 +751,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
         char *urb;
 	size_t urb_len;
         char ctrl_urb[2] = { 0 };
-        int len, ret, chn_id;
+        int len, ret = 0, chn_id;
         struct cp2130_channel *chn;
 	unsigned int recv_pipe, xmit_pipe;
 	unsigned int xmit_ctrl_pipe;
@@ -801,8 +801,10 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
                         urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
 	}
 	urb = kmalloc(urb_len, GFP_KERNEL);
-        if (!urb)
-                goto out;
+	if (!urb) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	/* iterate through all transfers */
 	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
@@ -1430,6 +1432,9 @@ static int cp2130_gpio_get_value(struct gpio_chip *gc, unsigned off)
 	case 9:
 	case 10:
 		set = !!(dev->gpio_states[0] & (4 << (off - 6)));
+		break;
+	default:
+		set = -EINVAL;
 		break;
 	}
 	return set;
