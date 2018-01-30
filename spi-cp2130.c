@@ -470,7 +470,7 @@ static int channel_pdata_store(struct device *dev,
 	chn_id = buf[0];
         dev_dbg(&udev->dev, "received pdata for channel %u", chn_id);
 
-	if (chn_id < 0 || chn_id > CP2130_NUM_GPIOS)
+	if (chn_id < 0 || chn_id >= CP2130_NUM_GPIOS)
 		return -EINVAL;
 
 	chn = &chip->chn_configs[chn_id];
