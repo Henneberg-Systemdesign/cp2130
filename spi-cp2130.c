@@ -266,9 +266,9 @@ static ssize_t channel_config_show(struct device *dev,
         return ret;
 }
 
-static int channel_config_store(struct device *dev,
-                                struct device_attribute *attr,
-                                const char *buf, size_t count)
+static ssize_t channel_config_store(struct device *dev,
+                                    struct device_attribute *attr,
+                                    const char *buf, size_t count)
 {
         struct cp2130_channel chn;
         struct usb_interface *intf;
@@ -439,9 +439,9 @@ out:
 static DEVICE_ATTR_RW(channel_config);
 
 
-static int channel_pdata_store(struct device *dev,
-			       struct device_attribute *attr,
-			       const char *buf, size_t count)
+static ssize_t channel_pdata_store(struct device *dev,
+                                   struct device_attribute *attr,
+                                   const char *buf, size_t count)
 {
         struct usb_interface *intf;
 	struct usb_device *udev;
@@ -586,9 +586,9 @@ static ssize_t otp_rom_show(struct device *dev,
         return ret;
 }
 
-static int otp_rom_store(struct device *dev,
-                         struct device_attribute *attr,
-                         const char *buf, size_t count)
+static ssize_t otp_rom_store(struct device *dev,
+                             struct device_attribute *attr,
+                             const char *buf, size_t count)
 {
         int pin_config[CP2130_NUM_GPIOS];
         struct usb_interface *intf;
@@ -709,9 +709,9 @@ static ssize_t irq_poll_interval_show(struct device *dev,
         return ret;
 }
 
-static int irq_poll_interval_store(struct device *dev,
-                                   struct device_attribute *attr,
-                                   const char *buf, size_t count)
+static ssize_t irq_poll_interval_store(struct device *dev,
+                                       struct device_attribute *attr,
+                                       const char *buf, size_t count)
 {
         struct usb_interface *intf;
 	struct usb_device *udev;
