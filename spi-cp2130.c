@@ -484,7 +484,7 @@ static int channel_pdata_store(struct device *dev,
         dev_dbg(&udev->dev, "set pdata for channel %u", chn_id);
 
         mutex_lock(&chip->chn_config_lock);
-	chn->pdata = kzalloc(count - 1, GFP_KERNEL);
+	chn->pdata = kmalloc(count - 1, GFP_KERNEL);
 	if (!chn->pdata) {
 		ret = -ENOMEM;
 		goto out;
@@ -1609,8 +1609,15 @@ void cp2130_disconnect(struct usb_interface *intf)
 
         cp2130_gpio_irq_remove(dev);
 	gpiochip_remove_(&dev->gpio_chip);
-	for (i = 0; i < CP2130_NUM_GPIOS; i++)
+	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
+		struct cp2130_channel *chn_cfg = &dev->chn_configs[i];
 		kfree(dev->gpio_names[i]);
+
+		if (chn_cfg->pdata) {
+			kfree(chn_cfg->pdata);
+			chn_cfg->pdata = NULL;
+		}
+	}
 
         /* remove sysfs files */
         device_remove_file(&intf->dev,
