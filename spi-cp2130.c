@@ -1068,11 +1068,11 @@ static void cp2130_read_channel_config(struct work_struct *work)
 
 		chn->delay_mask = urb[1];
 		chn->inter_byte_delay = urb[2] << 8;
-		chn->inter_byte_delay |= urb[2] & 0xff;
-		chn->post_assert_delay = urb[3] << 8;
-		chn->post_assert_delay |= urb[4] & 0xff;
-		chn->pre_deassert_delay = urb[5] << 8;
-		chn->pre_deassert_delay |= urb[6] & 0xff;
+		chn->inter_byte_delay |= urb[3] & 0xff;
+		chn->post_assert_delay = urb[4] << 8;
+		chn->post_assert_delay |= urb[5] & 0xff;
+		chn->pre_deassert_delay = urb[6] << 8;
+		chn->pre_deassert_delay |= urb[7] & 0xff;
 	}
 
 	mutex_unlock(&dev->usb_bus_lock);
