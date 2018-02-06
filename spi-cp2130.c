@@ -772,10 +772,12 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 			break;
 	}
 
-	mutex_lock(&dev->usb_bus_lock);
+	if (chn_id == CP2130_NUM_GPIOS) {
+		ret = -ENODEV;
+		goto out_notfound;
+	}
 
-	if (chn_id == CP2130_NUM_GPIOS)
-		goto out;
+	mutex_lock(&dev->usb_bus_lock);
 
 	xmit_ctrl_pipe = usb_sndctrlpipe(dev->udev, 0);
 	if (chn_id != dev->current_channel) {
@@ -870,6 +872,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 
 out:
 	mutex_unlock(&dev->usb_bus_lock);
+out_notfound:
 	mesg->status = ret;
 	if (ret)
 		dev_err(&master->dev, "USB transfer failed with %d", ret);
