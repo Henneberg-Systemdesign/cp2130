@@ -36,6 +36,8 @@
 #define CP2130_NUM_GPIOS             11
 #define CP2130_IRQ_POLL_INTERVAL     1 * 1000 * 1000 /* us */
 
+#define CP2130_MAX_USB_PACKET_SIZE   64
+
 #define CP2130_CMD_READ              0x00
 #define CP2130_CMD_WRITE             0x01
 #define CP2130_CMD_WRITEREAD         0x02
@@ -121,6 +123,8 @@ struct cp2130_device {
 	int current_channel;
 
 	int irq_poll_interval;
+
+	u8 *usb_xfer;
 };
 
 /* USB device functions */
@@ -748,9 +752,6 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 	struct spi_transfer *xfer;
 	struct cp2130_device *dev =
 		(struct cp2130_device*) spi_master_get_devdata(master);
-	char *urb;
-	size_t urb_len;
-	char ctrl_urb[2] = { 0 };
 	int len, ret = 0, chn_id;
 	struct cp2130_channel *chn;
 	unsigned int recv_pipe, xmit_pipe;
@@ -780,30 +781,18 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 	if (chn_id != dev->current_channel) {
 		dev_dbg(&dev->udev->dev, "load setup %d for channel %d",
 		        chn->cs_en, chn_id);
-		ctrl_urb[0] = chn_id;
-		ctrl_urb[1] = chn->cs_en;
+		dev->usb_xfer[0] = chn_id;
+		dev->usb_xfer[1] = chn->cs_en;
 		ret = usb_control_msg(
 			dev->udev, xmit_ctrl_pipe,
 			CP2130_BREQ_SET_GPIO_CS,
 			USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 			0, 0,
-			ctrl_urb, 2, 200);
-		if (ret < 2)
+			dev->usb_xfer, 2, 200);
+		if (ret != 2)
 			goto out;
 
 		dev->current_channel = chn_id;
-	}
-
-	urb_len = CP2130_BULK_OFFSET_DATA;
-	list_for_each_entry(xfer, &mesg->transfers, transfer_list) {
-		if (xfer->tx_buf &&
-		    ((xfer->len + CP2130_BULK_OFFSET_DATA) > urb_len))
-			urb_len = CP2130_BULK_OFFSET_DATA + xfer->len;
-	}
-	urb = kmalloc(urb_len, GFP_KERNEL);
-	if (!urb) {
-		ret = -ENOMEM;
-		goto out;
 	}
 
 	/* iterate through all transfers */
@@ -817,15 +806,13 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 			continue;
 		}
 
-		memset(urb, 0, urb_len);
-
 		/* init length field */
-		*((u32*) (urb + CP2130_BULK_OFFSET_LENGTH)) =
+		*((u32*) (dev->usb_xfer + CP2130_BULK_OFFSET_LENGTH)) =
 			__cpu_to_le32(xfer->len);
 
 		/* copy SPI tx data */
 		if (xfer->tx_buf)
-			memcpy(urb + CP2130_BULK_OFFSET_DATA,
+			memcpy(dev->usb_xfer + CP2130_BULK_OFFSET_DATA,
 			       xfer->tx_buf, xfer->len);
 
 		/* prepare URB and submit sync
@@ -835,9 +822,10 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		   async USB API */
 
 		if (xfer->tx_buf && xfer->rx_buf) {
-			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_WRITEREAD;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
+				CP2130_CMD_WRITEREAD;
 			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
+			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
 			                   CP2130_BULK_OFFSET_DATA + xfer->len,
 			                   &len, 200);
 			dev_dbg(&master->dev, "usb write %d", ret);
@@ -852,18 +840,19 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 				break;
 		} else if (!xfer->rx_buf) {
 			/* prepare URB and submit sync */
-			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_WRITE;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
+				CP2130_CMD_WRITE;
 			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
+			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
 			                   CP2130_BULK_OFFSET_DATA + xfer->len,
 			                   &len, 200);
 			if (ret)
 				break;
 		} else if (!xfer->tx_buf) {
 			/* prepare URB and submit sync */
-			urb[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
 			/* usb write */
-			ret = usb_bulk_msg(dev->udev, xmit_pipe, urb,
+			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
 			                   CP2130_BULK_OFFSET_DATA,
 			                   &len, 200);
 			if (ret)
@@ -878,8 +867,6 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		udelay(xfer->delay_usecs);
 		mesg->actual_length += xfer->len;
 	}
-
-	kfree(urb);
 
 out:
 	mutex_unlock(&dev->usb_bus_lock);
@@ -898,7 +885,6 @@ static int cp2130_irq_from_pin(struct cp2130_device *dev, int pin)
 static void cp2130_update_channel_config(struct work_struct *work)
 {
 	int i;
-	char urb[8];
 	int ret;
 	unsigned int xmit_pipe;
 	struct cp2130_device *dev = container_of(work,
@@ -924,56 +910,56 @@ static void cp2130_update_channel_config(struct work_struct *work)
 		chn->updated++;
 
 		dev_dbg(&dev->udev->dev, "update config of channel %d", i);
-		urb[0] = i;
+		dev->usb_xfer[0] = i;
 
 		mutex_lock(&dev->usb_bus_lock);
 
 		dev_dbg(&dev->udev->dev, "set spi word");
-		urb[1] = (chn->clock_freq << 0) |
-			(chn->cs_pin_mode << 3) |
-			(chn->polarity    << 4) |
-			(chn->clock_phase << 5);
+		dev->usb_xfer[1] = (chn->clock_freq  << 0) |
+		                   (chn->cs_pin_mode << 3) |
+		                   (chn->polarity    << 4) |
+		                   (chn->clock_phase << 5);
 
 		ret = usb_control_msg(
 			dev->udev, xmit_pipe,
 			CP2130_BREQ_SET_SPI_WORD,
 			USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 			0, 0,
-			urb, 2, 200);
+			dev->usb_xfer, 2, 200);
 		if (ret < 2)
 			goto error_unlock;
 
 		dev_dbg(&dev->udev->dev, "set spi delay");
-		urb[1] = chn->delay_mask;
+		dev->usb_xfer[1] = chn->delay_mask;
 
-		urb[2] = (chn->inter_byte_delay & 0xff00) >> 8;
-		urb[3] = (chn->inter_byte_delay & 0x00ff) >> 0;
+		dev->usb_xfer[2] = (chn->inter_byte_delay & 0xff00) >> 8;
+		dev->usb_xfer[3] = (chn->inter_byte_delay & 0x00ff) >> 0;
 
-		urb[4] = (chn->post_assert_delay & 0xff00) >> 8;
-		urb[5] = (chn->post_assert_delay & 0x00ff) >> 0;
+		dev->usb_xfer[4] = (chn->post_assert_delay & 0xff00) >> 8;
+		dev->usb_xfer[5] = (chn->post_assert_delay & 0x00ff) >> 0;
 
-		urb[6] = (chn->pre_deassert_delay & 0xff00) >> 8;
-		urb[7] = (chn->pre_deassert_delay & 0x00ff) >> 0;
+		dev->usb_xfer[6] = (chn->pre_deassert_delay & 0xff00) >> 8;
+		dev->usb_xfer[7] = (chn->pre_deassert_delay & 0x00ff) >> 0;
 		ret = usb_control_msg(
 			dev->udev, xmit_pipe,
 			CP2130_BREQ_SET_SPI_DELAY,
 			USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 			0, 0,
-			urb, 8, 200);
+			dev->usb_xfer, 8, 200);
 		if (ret < 8)
 			goto error_unlock;
 
 		/* configure irq pin as input if required */
 		if (chn->irq_pin >= 0) {
-			urb[0] = chn->irq_pin;
-			urb[1] = 0; /* input */
-			urb[2] = 0; /* value, ignored for input */
+			dev->usb_xfer[0] = chn->irq_pin;
+			dev->usb_xfer[1] = 0; /* input */
+			dev->usb_xfer[2] = 0; /* value, ignored for input */
 			ret = usb_control_msg(
 				dev->udev, xmit_pipe,
 				CP2130_BREQ_SET_GPIO_MODE,
 				USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 				0, 0,
-				urb, 3, 200);
+				dev->usb_xfer, 3, 200);
 			if (ret < 3)
 				goto error_unlock;
 		}
@@ -1020,7 +1006,6 @@ error:
 static void cp2130_read_channel_config(struct work_struct *work)
 {
 	int i;
-	char urb[32];
 	int ret;
 	unsigned int recv_pipe;
 	struct cp2130_device *dev = container_of(work,
@@ -1044,15 +1029,15 @@ static void cp2130_read_channel_config(struct work_struct *work)
 		CP2130_BREQ_GET_SPI_WORD,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 		0, 0,
-		urb, 11, 200);
+		dev->usb_xfer, 11, 200);
 
 	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
 		chn = &dev->chn_configs[i];
 
-		chn->clock_freq = urb[i] & 7;
-		chn->cs_pin_mode = !!(urb[i] & 8);
-		chn->polarity = !!(urb[i] & 16);
-		chn->clock_phase = !!(urb[i] & 32);
+		chn->clock_freq = dev->usb_xfer[i] & 7;
+		chn->cs_pin_mode = !!(dev->usb_xfer[i] & 8);
+		chn->polarity = !!(dev->usb_xfer[i] & 16);
+		chn->clock_phase = !!(dev->usb_xfer[i] & 32);
 	}
 
 	dev_dbg(&dev->udev->dev, "get delays");
@@ -1062,17 +1047,17 @@ static void cp2130_read_channel_config(struct work_struct *work)
 			CP2130_BREQ_GET_SPI_DELAY,
 			USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 			0, i,
-			urb, 8, 200);
+			dev->usb_xfer, 8, 200);
 
 		chn = &dev->chn_configs[i];
 
-		chn->delay_mask = urb[1];
-		chn->inter_byte_delay = urb[2] << 8;
-		chn->inter_byte_delay |= urb[3] & 0xff;
-		chn->post_assert_delay = urb[4] << 8;
-		chn->post_assert_delay |= urb[5] & 0xff;
-		chn->pre_deassert_delay = urb[6] << 8;
-		chn->pre_deassert_delay |= urb[7] & 0xff;
+		chn->delay_mask = dev->usb_xfer[1];
+		chn->inter_byte_delay = dev->usb_xfer[2] << 8;
+		chn->inter_byte_delay |= dev->usb_xfer[3] & 0xff;
+		chn->post_assert_delay = dev->usb_xfer[4] << 8;
+		chn->post_assert_delay |= dev->usb_xfer[5] & 0xff;
+		chn->pre_deassert_delay = dev->usb_xfer[6] << 8;
+		chn->pre_deassert_delay |= dev->usb_xfer[7] & 0xff;
 	}
 
 	mutex_unlock(&dev->usb_bus_lock);
@@ -1085,7 +1070,6 @@ static void cp2130_update_otprom(struct work_struct *work)
 	struct cp2130_device *dev = container_of(work,
 	                                         struct cp2130_device,
 	                                         update_otprom);
-	char urb[0x14] = { 0 };
 	int ret;
 	unsigned int xmit_pipe;
 
@@ -1094,7 +1078,7 @@ static void cp2130_update_otprom(struct work_struct *work)
 	mutex_lock(&dev->otprom_lock);
 
 	for (i = 0; i < CP2130_NUM_GPIOS; i++)
-		urb[i] = dev->otprom_config.pin_config[i];
+		dev->usb_xfer[i] = dev->otprom_config.pin_config[i];
 
 	mutex_lock(&dev->usb_bus_lock);
 
@@ -1103,7 +1087,7 @@ static void cp2130_update_otprom(struct work_struct *work)
 		CP2130_BREQ_SET_PIN_CONFIG,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 		CP2130_BREQ_MEMORY_KEY, 0,
-		urb, 0x14, 200);
+		dev->usb_xfer, 20, 200);
 
 	if (ret)
 		dev_err(&dev->udev->dev, "error writing OTP ROM pin config");
@@ -1117,7 +1101,6 @@ static void cp2130_update_otprom(struct work_struct *work)
 static void cp2130_read_otprom(struct work_struct *work)
 {
 	int i;
-	char urb[32];
 	int ret;
 	unsigned int recv_pipe;
 	struct cp2130_device *dev = container_of(work,
@@ -1140,11 +1123,11 @@ static void cp2130_read_otprom(struct work_struct *work)
 		CP2130_BREQ_GET_LOCK_BYTE,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 		0, 0,
-		urb, 2, 200);
+		dev->usb_xfer, 2, 200);
 	dev_info(&dev->udev->dev, "lock byte %02X %02X",
-	         urb[0] & 0xff, urb[1] & 0x0f);
-	dev->otprom_config.lock_byte = urb[0] & 0xff;
-	dev->otprom_config.lock_byte |= (urb[1] & 0x0f) << 8;
+	         dev->usb_xfer[0] & 0xff, dev->usb_xfer[1] & 0x0f);
+	dev->otprom_config.lock_byte = dev->usb_xfer[0] & 0xff;
+	dev->otprom_config.lock_byte |= (dev->usb_xfer[1] & 0x0f) << 8;
 
 	dev_dbg(&dev->udev->dev, "get pin config");
 	ret = usb_control_msg(
@@ -1152,22 +1135,26 @@ static void cp2130_read_otprom(struct work_struct *work)
 		CP2130_BREQ_GET_PIN_CONFIG,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 		0, 0,
-		urb, 0x14, 200);
+		dev->usb_xfer, 20, 200);
 
 	for (i = 0; i < CP2130_NUM_GPIOS; ++i) {
 		dev_info(&dev->udev->dev, "pin %d: %02X",
-		         i, urb[i]);
-		dev->otprom_config.pin_config[i] = urb[i];
+		         i, dev->usb_xfer[i]);
+		dev->otprom_config.pin_config[i] = dev->usb_xfer[i];
 	}
-	dev->otprom_config.suspend_level = (urb[i] << 8) | urb[i + 1];
+	dev->otprom_config.suspend_level =
+		(dev->usb_xfer[i] << 8) | dev->usb_xfer[i + 1];
 	i += 2;
-	dev->otprom_config.suspend_mode = (urb[i] << 8) | urb[i + 1];
+	dev->otprom_config.suspend_mode =
+		(dev->usb_xfer[i] << 8) | dev->usb_xfer[i + 1];
 	i += 2;
-	dev->otprom_config.wakeup_mask = (urb[i] << 8) | urb[i + 1];
+	dev->otprom_config.wakeup_mask =
+		(dev->usb_xfer[i] << 8) | dev->usb_xfer[i + 1];
 	i += 2;
-	dev->otprom_config.wakeup_match = (urb[i] << 8) | urb[i + 1];
+	dev->otprom_config.wakeup_match =
+		(dev->usb_xfer[i] << 8) | dev->usb_xfer[i + 1];
 	i += 2;
-	dev->otprom_config.divider = urb[i];
+	dev->otprom_config.divider = dev->usb_xfer[i];
 
 	mutex_unlock(&dev->usb_bus_lock);
 	mutex_unlock(&dev->otprom_lock);
@@ -1176,7 +1163,6 @@ static void cp2130_read_otprom(struct work_struct *work)
 static void cp2130_read_gpios(struct work_struct *work)
 {
 	unsigned int recv_pipe;
-	char urb[2];
 	struct cp2130_device *dev = container_of(work,
 	                                         struct cp2130_device,
 	                                         irq_work);
@@ -1194,11 +1180,11 @@ loop:
 		CP2130_BREQ_GET_GPIO_VALUES,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 		0, 0,
-		urb, 2, 200);
+		dev->usb_xfer, 2, 200);
 	mutex_unlock(&dev->usb_bus_lock);
 
-	dev->gpio_states[0] = urb[0];
-	dev->gpio_states[1] = urb[1];
+	dev->gpio_states[0] = dev->usb_xfer[0];
+	dev->gpio_states[1] = dev->usb_xfer[1];
 
 	if (i < 2) {
 		dev_err(&dev->udev->dev, "failed to read gpios");
@@ -1206,9 +1192,9 @@ loop:
 	}
 
 	dev_dbg(&dev->udev->dev, "read gpios 1: %02X",
-	        urb[1] & 0xff & ~(1 | 2 | 4));
+	        dev->usb_xfer[1] & 0xff & ~(1 | 2 | 4));
 	dev_dbg(&dev->udev->dev, "read gpios 2: %02X",
-	        urb[0] & 0xff & ~(2 | 128));
+	        dev->usb_xfer[0] & 0xff & ~(2 | 128));
 
 	for (i = 0; i < CP2130_NUM_GPIOS; ++i) {
 		if (!(dev->irq_chip.irq_mask & (1 << i)))
@@ -1220,17 +1206,17 @@ loop:
 		case 2:
 		case 3:
 		case 4:
-			set = urb[1] & (8 << i);
+			set = dev->usb_xfer[1] & (8 << i);
 			break;
 		case 5:
-			set = urb[0] & (1 << 0);
+			set = dev->usb_xfer[0] & (1 << 0);
 			break;
 		case 6:
 		case 7:
 		case 8:
 		case 9:
 		case 10:
-			set = urb[0] & (4 << (i - 6));
+			set = dev->usb_xfer[0] & (4 << (i - 6));
 			break;
 		}
 
@@ -1360,22 +1346,21 @@ static int cp2130_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 {
 	struct cp2130_device *dev = gpiochip_get_data(gc);
 	int ret;
-	char urb[8];
 	unsigned int xmit_pipe;
 
 	xmit_pipe = usb_sndctrlpipe(dev->udev, 0);
 
 	mutex_lock(&dev->usb_bus_lock);
 
-	urb[0] = off;
-	urb[1] = 0; /* input */
-	urb[2] = 0; /* value, ignored for input */
+	dev->usb_xfer[0] = off;
+	dev->usb_xfer[1] = 0; /* input */
+	dev->usb_xfer[2] = 0; /* value, ignored for input */
 	ret = usb_control_msg(
 		dev->udev, xmit_pipe,
 		CP2130_BREQ_SET_GPIO_MODE,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 		0, 0,
-		urb, 3, 200);
+		dev->usb_xfer, 3, 200);
 
 	mutex_unlock(&dev->usb_bus_lock);
 
@@ -1387,22 +1372,21 @@ static int cp2130_gpio_direction_output(struct gpio_chip *gc, unsigned off,
 {
 	struct cp2130_device *dev = gpiochip_get_data(gc);
 	int ret;
-	char urb[8];
 	unsigned int xmit_pipe;
 
 	xmit_pipe = usb_sndctrlpipe(dev->udev, 0);
 
 	mutex_lock(&dev->usb_bus_lock);
 
-	urb[0] = off;
-	urb[1] = 2; /* push-pull output */
-	urb[2] = val; /* state */
+	dev->usb_xfer[0] = off;
+	dev->usb_xfer[1] = 2; /* push-pull output */
+	dev->usb_xfer[2] = val; /* state */
 	ret = usb_control_msg(
 		dev->udev, xmit_pipe,
 		CP2130_BREQ_SET_GPIO_MODE,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_OUT,
 		0, 0,
-		urb, 3, 200);
+		dev->usb_xfer, 3, 200);
 
 	mutex_unlock(&dev->usb_bus_lock);
 
@@ -1461,7 +1445,7 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
 	struct usb_device *udev = usb_get_dev(interface_to_usbdev(intf));
 	struct cp2130_device *dev;
-	struct spi_master *spi_master;
+	struct spi_master *spi_master = NULL;
 	struct gpio_chip *gc;
 	struct usb_host_interface *iface_desc = intf->cur_altsetting;
 	struct usb_endpoint_descriptor *endpoint;
@@ -1476,7 +1460,10 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 
 	dev = kzalloc(sizeof(struct cp2130_device), GFP_KERNEL);
 	if (!dev)
-		goto dev_err_out;
+		goto err_out;
+	dev->usb_xfer = kmalloc(CP2130_MAX_USB_PACKET_SIZE, GFP_KERNEL);
+	if (!dev->usb_xfer)
+		goto err_out;
 
 	dev->udev = udev;
 	dev->intf = intf;
@@ -1595,11 +1582,14 @@ int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	return 0;
 
 err_out:
-	kfree(dev);
 	if (spi_master)
-		kfree(spi_master);
+		spi_unregister_master(spi_master);
+	if (dev) {
+		if (dev->usb_xfer)
+			kfree(dev->usb_xfer);
+		kfree(dev);
+	}
 
-dev_err_out:
 	return ret;
 }
 
@@ -1623,7 +1613,7 @@ void cp2130_disconnect(struct usb_interface *intf)
 		}
 	}
 
-  /* remove sysfs files */
+	/* remove sysfs files */
 	device_remove_file(&intf->dev,
 	                   &dev_attr_channel_config);
 	device_remove_file(&intf->dev,
@@ -1634,6 +1624,9 @@ void cp2130_disconnect(struct usb_interface *intf)
 	                   &dev_attr_irq_poll_interval);
 
 	spi_unregister_master(dev->spi_master);
+
+	kfree(dev->usb_xfer);
+	kfree(dev);
 }
 
 module_init(cp2130_init);
