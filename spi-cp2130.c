@@ -127,7 +127,7 @@ struct cp2130_device {
 	u8 *usb_xfer;
 };
 
-/* USB device functions */
+/* Prototypes */
 static int cp2130_probe(struct usb_interface *intf,
                         const struct usb_device_id *id);
 static void cp2130_disconnect(struct usb_interface *intf);
@@ -137,6 +137,7 @@ static const struct usb_device_id cp2130_devices[] = {
 	{ }
 };
 
+/* USB device functions */
 static struct usb_driver cp2130_driver = {
 	.name                 = "cp2130",
 	.probe                = cp2130_probe,
@@ -1444,7 +1445,8 @@ static const char* cp2130_gpio_names[] = { "........-_cs0",
                                            "........-_suspend",
 };
 
-int cp2130_probe(struct usb_interface *intf, const struct usb_device_id *id)
+static int cp2130_probe(struct usb_interface *intf,
+			const struct usb_device_id *id)
 {
 	struct usb_device *udev = usb_get_dev(interface_to_usbdev(intf));
 	struct cp2130_device *dev;
@@ -1596,7 +1598,7 @@ err_out:
 	return ret;
 }
 
-void cp2130_disconnect(struct usb_interface *intf)
+static void cp2130_disconnect(struct usb_interface *intf)
 {
 	struct cp2130_device *dev = usb_get_intfdata(intf);
 	int i = dev->irq_poll_interval;
