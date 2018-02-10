@@ -827,44 +827,55 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		   async USB API */
 
 		if (xfer->tx_buf && xfer->rx_buf) {
+			/* Simultaneous SPI write and read */
+			const int usb_xmit_len =
+				CP2130_BULK_OFFSET_DATA + xfer->len;
 			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
 				CP2130_CMD_WRITEREAD;
-			/* usb write */
 			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-			                   CP2130_BULK_OFFSET_DATA + xfer->len,
-			                   &len, 200);
-			dev_dbg(&master->dev, "usb write %d", ret);
+			                   usb_xmit_len, &len, 200);
+			dev_dbg(&master->dev,
+			        "write-read - usb tx phase: ret=%d, wrote %d/%d",
+			         ret, len, usb_xmit_len);
 			if (ret)
 				break;
-			/* usb read */
 			ret = usb_bulk_msg(dev->udev, recv_pipe,
 			                   xfer->rx_buf, xfer->len,
 			                   &len, 200);
-			dev_dbg(&master->dev, "usb read %d", ret);
+			dev_dbg(&master->dev,
+				"write-read - usb rx phase: ret=%d, read %d/%d",
+				ret, len, xfer->len);
 			if (ret)
 				break;
-		} else if (!xfer->rx_buf) {
-			/* prepare URB and submit sync */
+		} else if (xfer->tx_buf) {
+			/* SPI write */
+			const int usb_xmit_len =
+				CP2130_BULK_OFFSET_DATA + xfer->len;
 			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
 				CP2130_CMD_WRITE;
-			/* usb write */
 			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-			                   CP2130_BULK_OFFSET_DATA + xfer->len,
-			                   &len, 200);
+			                   usb_xmit_len, &len, 200);
+			dev_dbg(&master->dev,
+			        "write - usb tx phase: ret=%d, wrote %d/%d",
+			        ret, len, usb_xmit_len);
 			if (ret)
 				break;
-		} else if (!xfer->tx_buf) {
-			/* prepare URB and submit sync */
+		} else if (xfer->rx_buf) {
+			/* SPI read */
+			const int usb_xmit_len = CP2130_BULK_OFFSET_DATA;
 			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
-			/* usb write */
 			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-			                   CP2130_BULK_OFFSET_DATA,
-			                   &len, 200);
+					   usb_xmit_len, &len, 200);
+			dev_dbg(&master->dev,
+				"read - usb tx phase: ret=%d, wrote %d/%d",
+				ret, len, usb_xmit_len);
 			if (ret)
 				break;
-			/* usb read */
 			ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf,
 			                   xfer->len, &len, 200);
+			dev_dbg(&master->dev,
+			        "read - usb rx phase: ret=%d, read %d/%d",
+			        ret, len, xfer->len);
 			if (ret)
 				break;
 		}
