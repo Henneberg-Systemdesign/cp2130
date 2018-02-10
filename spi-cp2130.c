@@ -1618,6 +1618,13 @@ void cp2130_disconnect(struct usb_interface *intf)
 	dev->irq_poll_interval = -1;
 	usleep_range(i, i + 100); /* wait for worker to complete */
 
+	/* Remove all devices (if any) attached to the SPI bus */
+	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
+		if (dev->chn_configs[i].chip) {
+			spi_unregister_device(dev->chn_configs[i].chip);
+		}
+	}
+
 	cp2130_gpio_irq_remove(dev);
 	gpiochip_remove_(&dev->gpio_chip);
 	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
