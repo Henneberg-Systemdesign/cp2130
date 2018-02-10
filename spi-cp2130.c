@@ -808,6 +808,9 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 			continue;
 		}
 
+		/* zero the transfer buffer header */
+		memset(dev->usb_xfer, 0, CP2130_BULK_OFFSET_DATA);
+
 		/* init length field */
 		*((u32*) (dev->usb_xfer + CP2130_BULK_OFFSET_LENGTH)) =
 			__cpu_to_le32(xfer->len);
