@@ -1691,4 +1691,3 @@ MODULE_DESCRIPTION("Silicon Labs CP2130 single chip USB-to-SPI brigde");
 MODULE_LICENSE("GPL");
 
 MODULE_DEVICE_TABLE(usb, cp2130_devices);
-
