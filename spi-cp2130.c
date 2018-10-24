@@ -1220,16 +1220,18 @@ loop:
 	dev_dbg(&dev->udev->dev, "start read gpios");
 
 	mutex_lock(&dev->usb_bus_lock);
+
 	i = usb_control_msg(
 		dev->udev, recv_pipe,
 		CP2130_BREQ_GET_GPIO_VALUES,
 		USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
 		0, 0,
 		dev->usb_xfer, 2, 200);
-	mutex_unlock(&dev->usb_bus_lock);
 
 	dev->gpio_states[0] = dev->usb_xfer[0];
 	dev->gpio_states[1] = dev->usb_xfer[1];
+
+	mutex_unlock(&dev->usb_bus_lock);
 
 	if (i < 2) {
 		dev_err(&dev->udev->dev, "failed to read gpios");
@@ -1237,9 +1239,9 @@ loop:
 	}
 
 	dev_dbg(&dev->udev->dev, "read gpios 1: %02X",
-	        dev->usb_xfer[1] & 0xff & ~(1 | 2 | 4));
+	        dev->gpio_states[1] & 0xff & ~(1 | 2 | 4));
 	dev_dbg(&dev->udev->dev, "read gpios 2: %02X",
-	        dev->usb_xfer[0] & 0xff & ~(2 | 128));
+	        dev->gpio_states[0] & 0xff & ~(2 | 128));
 
 	for (i = 0; i < CP2130_NUM_GPIOS; ++i) {
 		if (!(dev->irq_chip.irq_mask & (1 << i)))
@@ -1251,17 +1253,17 @@ loop:
 		case 2:
 		case 3:
 		case 4:
-			set = dev->usb_xfer[1] & (8 << i);
+			set = dev->gpio_states[1] & (8 << i);
 			break;
 		case 5:
-			set = dev->usb_xfer[0] & (1 << 0);
+			set = dev->gpio_states[0] & (1 << 0);
 			break;
 		case 6:
 		case 7:
 		case 8:
 		case 9:
 		case 10:
-			set = dev->usb_xfer[0] & (4 << (i - 6));
+			set = dev->gpio_states[0] & (4 << (i - 6));
 			break;
 		}
 
