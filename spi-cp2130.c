@@ -838,7 +838,7 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 
 out:
 	if (!ret)
-		return len;
+		return (len - offset);
 	return ret;
 }
 
