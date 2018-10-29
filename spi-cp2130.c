@@ -751,8 +751,8 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 					struct spi_transfer *xfer,
 					unsigned int pos)
 {
-	int offset = 0, data_size, len, ret;
-	unsigned int limit = CP2130_MAX_USB_PACKET_SIZE;
+	int offset, data_size, len, ret;
+	unsigned int limit;
 	unsigned int recv_pipe, xmit_pipe;
 	struct cp2130_device *dev =
 		(struct cp2130_device*) spi_master_get_devdata(master);
@@ -763,7 +763,8 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 	dev_dbg(&master->dev, "recv/xmit pipes: %u / %u",
 		recv_pipe, xmit_pipe);
 
-	/* if this is the first packet we need to prepare the header */
+	/* if this is the first packet we need to prepare the header, if not
+	   we can use all available space in the packet */
 	if (!pos) {
 		/* zero the transfer buffer header, this implicitely
 		   initializes the reserved fields */
@@ -775,6 +776,9 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 
 		offset = CP2130_BULK_OFFSET_DATA;
 		limit = CP2130_MAX_USB_PACKET_SIZE - CP2130_BULK_OFFSET_DATA;
+	} else {
+		offset = 0;
+		limit = CP2130_MAX_USB_PACKET_SIZE;
 	}
 
 	data_size = min(limit, xfer->len - pos);
