@@ -190,6 +190,25 @@ static char* cp2130_spi_speed_to_string(int reg_val)
 	return "";
 }
 
+static unsigned int cp2130_spi_speed_to_nsec(int reg_val)
+{
+#define USEC (1 * 1000 * 1000)
+#define FREQ_MHZ(n) (n * 1000)
+#define FREQ_KHZ(n) (n)
+
+	switch (reg_val) {
+	case 0: return (USEC / FREQ_MHZ(12));
+	case 1: return (USEC / FREQ_MHZ(6));
+	case 2: return (USEC / FREQ_MHZ(3));
+	case 3: return (USEC / FREQ_KHZ(1500));
+	case 4: return (USEC / FREQ_KHZ(750));
+	case 5: return (USEC / FREQ_KHZ(375));
+	case 6: return (USEC / FREQ_KHZ(187));
+	case 7: return (USEC / FREQ_KHZ(93));
+	}
+	return (USEC / FREQ_KHZ(93));
+}
+
 /*
  * This is a workaround for older versions of linux which do not have
  * gpiochip_add(). In this module, the data parameter passed to
@@ -855,7 +874,7 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 	int ret = 0, chn_id;
 	struct cp2130_channel *chn;
 	unsigned int xmit_ctrl_pipe;
-	unsigned int pos;
+	unsigned int pos, transfer_delay;
 
 	dev_dbg(&master->dev, "spi transfer one message");
 
@@ -907,11 +926,19 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 		/* split the xfer data into chunks for 64 bytes and submit */
 		while (pos < xfer->len) {
 			ret = cp2130_transfer_bulk_message(master, xfer, pos);
+
+			/* wait until all bytes are sent on the SPI bus */
+			transfer_delay = cp2130_spi_speed_to_nsec(
+				chn->clock_freq) /* nsec per bit */
+				* ret * 8 /* number of bits */
+				* 2 /* headroom */
+				/ 1000 /* to usec */;
+			udelay(transfer_delay);
+
 			if (ret < 0)
 				break;
 			pos += ret;
 		}
-
 		udelay(xfer->delay_usecs);
 		mesg->actual_length += xfer->len;
 	}
