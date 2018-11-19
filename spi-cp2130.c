@@ -44,6 +44,7 @@
 #define CP2130_BULK_OFFSET_CMD       2
 #define CP2130_BULK_OFFSET_LENGTH    4
 #define CP2130_BULK_OFFSET_DATA      8
+#define CP2130_BULK_HEADER_SIZE      (CP2130_BULK_OFFSET_DATA)
 
 #define CP2130_BREQ_GET_GPIO_VALUES  0x20
 #define CP2130_BREQ_SET_GPIO_MODE    0x23
@@ -770,11 +771,12 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 					struct spi_transfer *xfer,
 					unsigned int pos)
 {
-	int offset, data_size, len, ret;
+	int header_size, data_size, len, ret, tx_len;
 	unsigned int limit;
 	unsigned int recv_pipe, xmit_pipe;
 	struct cp2130_device *dev =
 		(struct cp2130_device*) spi_master_get_devdata(master);
+	bool first_frame = !pos;
 
 	xmit_pipe = usb_sndbulkpipe(dev->udev, 0x01);
 	recv_pipe = usb_rcvbulkpipe(dev->udev, 0x82);
@@ -784,85 +786,99 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 
 	/* if this is the first packet we need to prepare the header, if not
 	   we can use all available space in the packet */
-	if (!pos) {
+	if (first_frame) {
 		/* zero the transfer buffer header, this implicitely
 		   initializes the reserved fields */
-		memset(dev->usb_xfer, 0, CP2130_BULK_OFFSET_DATA);
+		memset(dev->usb_xfer, 0, CP2130_BULK_HEADER_SIZE);
 
 		/* init length field */
 		*((u32*) (dev->usb_xfer + CP2130_BULK_OFFSET_LENGTH)) =
 			__cpu_to_le32(xfer->len);
 
-		offset = CP2130_BULK_OFFSET_DATA;
-		limit = CP2130_MAX_USB_PACKET_SIZE - CP2130_BULK_OFFSET_DATA;
-	} else {
-		offset = 0;
-		limit = CP2130_MAX_USB_PACKET_SIZE;
-	}
+		header_size = CP2130_BULK_HEADER_SIZE;
 
-	data_size = min(limit, xfer->len - pos);
+		/* now set the command type according to the SPI message setup */
+		if (xfer->tx_buf && xfer->rx_buf) {
+			/* Simultaneous SPI write and read */
+			limit = CP2130_MAX_USB_PACKET_SIZE -
+				CP2130_BULK_HEADER_SIZE;
+			data_size = min(limit, xfer->len - pos);
+			tx_len = header_size + data_size;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
+				CP2130_CMD_WRITEREAD;
+		} else if (xfer->tx_buf) {
+			/* SPI write only */
+			limit = CP2130_MAX_USB_PACKET_SIZE -
+				CP2130_BULK_HEADER_SIZE;
+			data_size = min(limit, xfer->len - pos);
+			tx_len = header_size + data_size;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
+				CP2130_CMD_WRITE;
+		} else if (xfer->rx_buf) {
+			/* SPI read only */
+			limit = CP2130_MAX_USB_PACKET_SIZE;
+			data_size = min(limit, xfer->len - pos);
+			tx_len = CP2130_BULK_HEADER_SIZE;
+			dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
+				CP2130_CMD_READ;
+		}
+	} else {
+		header_size = 0;
+		limit = CP2130_MAX_USB_PACKET_SIZE;
+		data_size = min(limit, xfer->len - pos);
+		tx_len = header_size + data_size;
+	}
 
 	/* copy chunk of SPI tx data */
 	if (xfer->tx_buf)
-		memcpy(dev->usb_xfer + offset, xfer->tx_buf + pos, data_size);
+		memcpy(dev->usb_xfer + header_size, xfer->tx_buf + pos, data_size);
 
 	/* prepare URB and submit sync
 	   CP2130 / AN792 p.7: 'any previous data transfer command
 	   must complete before another data transfer command
 	   is issued', so there is no advantage from using the
 	   async USB API */
-
 	if (xfer->tx_buf && xfer->rx_buf) {
-		/* Simultaneous SPI write and read */
-		const int usb_xmit_len =
-			offset + data_size;
-		dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
-			CP2130_CMD_WRITEREAD;
+		/* simultaneous SPI write and read */
 		ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-				   usb_xmit_len, &len, 200);
+				   tx_len, &len, 200);
 		dev_dbg(&master->dev,
 			"write-read - usb tx phase: ret=%d, wrote %d/%d",
-			ret, len, usb_xmit_len);
+			ret, len, tx_len);
 		if (ret)
 			goto out;
 		ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf + pos,
-				   usb_xmit_len, &len, 200);
+				   data_size, &len, 200);
 		dev_dbg(&master->dev,
 			"write-read - usb rx phase: ret=%d, read %d/%d",
-			ret, len, usb_xmit_len);
+			ret, len, data_size);
 	} else if (xfer->tx_buf) {
-		/* SPI write */
-		const int usb_xmit_len =
-			offset + data_size;
-		dev->usb_xfer[CP2130_BULK_OFFSET_CMD] =
-			CP2130_CMD_WRITE;
+		/* SPI write only */
 		ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-				   usb_xmit_len, &len, 200);
+				   tx_len, &len, 200);
 		dev_dbg(&master->dev,
 			"write - usb tx phase: ret=%d, wrote %d/%d",
-			ret, len, usb_xmit_len);
+			ret, len, tx_len);
 	} else if (xfer->rx_buf) {
-		/* SPI read */
-		const int usb_xmit_len = offset;
-		dev->usb_xfer[CP2130_BULK_OFFSET_CMD] = CP2130_CMD_READ;
-		ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
-				   usb_xmit_len, &len, 200);
-		dev_dbg(&master->dev,
-			"read - usb tx phase: ret=%d, wrote %d/%d",
-			ret, len, usb_xmit_len);
-		if (ret)
-			goto out;
+		/* SPI read only */
+		if (first_frame) { /* write read request only for first frame */
+			ret = usb_bulk_msg(dev->udev, xmit_pipe, dev->usb_xfer,
+					   tx_len, &len, 200);
+			dev_dbg(&master->dev,
+				"read - usb tx phase: ret=%d, wrote %d/%d",
+				ret, len, tx_len);
+			if (ret)
+				goto out;
+		}
 		ret = usb_bulk_msg(dev->udev, recv_pipe, xfer->rx_buf + pos,
-				   usb_xmit_len, &len, 200);
+				   data_size, &len, 200);
 		dev_dbg(&master->dev,
 			"read - usb rx phase: ret=%d, read %d/%d",
-			ret, len, usb_xmit_len);
+			ret, len, data_size);
 	}
 
 out:
-	if (!ret)
-		return (len - offset);
-	return ret;
+	return (!ret ? len - header_size : ret);
 }
 
 static int cp2130_spi_transfer_one_message(struct spi_master *master,
