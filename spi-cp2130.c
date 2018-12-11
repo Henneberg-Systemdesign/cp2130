@@ -859,6 +859,7 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 		dev_dbg(&master->dev,
 			"write - usb tx phase: ret=%d, wrote %d/%d",
 			ret, len, tx_len);
+		len -= header_size;
 	} else if (xfer->rx_buf) {
 		/* SPI read only */
 		if (first_frame) { /* write read request only for first frame */
@@ -878,7 +879,7 @@ static int cp2130_transfer_bulk_message(struct spi_master *master,
 	}
 
 out:
-	return (!ret ? len - header_size : ret);
+	return (!ret ? len : ret);
 }
 
 static int cp2130_spi_transfer_one_message(struct spi_master *master,
