@@ -22,6 +22,10 @@
            status or write a new OTP ROM configuration, please make
            sure that you do the right thing, OTP means one-time-programmable!
 
-* GPIO chip: the driver implements a GPIO chip for all GPIOs of the CP2130,
-             they can be accessed from userspace using the sysfs GPIO API
-             or directly from another driver.
+* GPIO chip:
+  * The driver implements a GPIO chip for all GPIOs of the CP2130,
+    they can be accessed from userspace using the sysfs GPIO API
+    or directly from another driver.
+  * GPIO names by default look like this `/sys/class/gpio/spiXXXXX-_cs0`, `/sys/class/gpio/spiXXXXX-_rtr`, etc.
+    If yout want use standard sysfs names, like `/sys/class/gpio/gpio5`,
+    add the parameter `CFLAGS_MODULE="-DDEFAULT_GPIO_NAMES"`, at the module compile stage

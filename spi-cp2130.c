@@ -1446,6 +1446,7 @@ static void cp2130_gpio_set_value(struct gpio_chip *gc, unsigned off, int val)
 	cp2130_gpio_direction_output(gc, off, val);
 }
 
+#ifndef DEFAULT_GPIO_NAMES
 static const char* cp2130_gpio_names[] = { "........-_cs0",
                                            "........-_cs1",
                                            "........-_cs2",
@@ -1458,6 +1459,7 @@ static const char* cp2130_gpio_names[] = { "........-_cs0",
                                            "........-suspend",
                                            "........-_suspend",
 };
+#endif
 
 static int cp2130_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
@@ -1548,12 +1550,14 @@ static int cp2130_probe(struct usb_interface *intf,
 
 	gc->base = -1; /* auto */
 	gc->ngpio = CP2130_NUM_GPIOS;
+	#ifndef DEFAULT_GPIO_NAMES
 	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
 		dev->gpio_names[i] = kstrdup(cp2130_gpio_names[i], GFP_KERNEL);
 		memcpy(dev->gpio_names[i],
 		       dev_name(&spi_master->dev), 3 + 5 /* spixxxxx */);
 	}
 	gc->names = (const char**) dev->gpio_names;
+	#endif
 	gc->label = dev_name(&spi_master->dev);
 	gc->owner = THIS_MODULE;
 
