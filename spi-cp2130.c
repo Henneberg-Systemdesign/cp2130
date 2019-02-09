@@ -1536,6 +1536,19 @@ static const char* cp2130_gpio_names[] = { "........-_cs0",
                                            "........-_suspend",
 };
 
+static struct attribute *cp2130_sysfs_attributes[] = {
+	&dev_attr_channel_config.attr,
+	&dev_attr_channel_pdata.attr,
+	&dev_attr_otp_rom.attr,
+	&dev_attr_irq_poll_interval.attr,
+	NULL
+};
+
+static const struct attribute_group cp2130_sysfs_atributes_group = {
+	.name = "cp2130",
+	.attrs = cp2130_sysfs_attributes,
+};
+
 static int cp2130_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {
@@ -1644,29 +1657,9 @@ static int cp2130_probe(struct usb_interface *intf,
 	dev_dbg(&udev->dev, "registered irq chip");
 
 	/* create sysfs files */
-	ret = device_create_file(&intf->dev,
-	                         &dev_attr_channel_config);
+	ret = sysfs_create_group(&intf->dev.kobj, &cp2130_sysfs_atributes_group);
 	if (ret)
-		dev_err(&udev->dev,
-		        "failed to create channel_config sysfs entry");
-
-	ret = device_create_file(&intf->dev,
-	                         &dev_attr_channel_pdata);
-	if (ret)
-		dev_err(&udev->dev,
-		        "failed to create channel_pdata sysfs entry");
-
-	ret = device_create_file(&intf->dev,
-	                         &dev_attr_otp_rom);
-	if (ret)
-		dev_err(&udev->dev,
-		        "failed to create otp_rom sysfs entry");
-
-	ret = device_create_file(&intf->dev,
-	                         &dev_attr_irq_poll_interval);
-	if (ret)
-		dev_err(&udev->dev,
-		        "failed to create irq_poll_interval sysfs entry");
+		dev_err(&udev->dev, "device_create_file failed");
 
 	INIT_WORK(&dev->update_chn_config, cp2130_update_channel_config);
 	INIT_WORK(&dev->read_chn_config, cp2130_read_channel_config);
@@ -1703,14 +1696,7 @@ static void cp2130_disconnect(struct usb_interface *intf)
 	}
 
 	/* remove sysfs files */
-	device_remove_file(&intf->dev,
-	                   &dev_attr_channel_config);
-	device_remove_file(&intf->dev,
-	                   &dev_attr_channel_pdata);
-	device_remove_file(&intf->dev,
-	                   &dev_attr_otp_rom);
-	device_remove_file(&intf->dev,
-	                   &dev_attr_irq_poll_interval);
+	sysfs_remove_group(&intf->dev.kobj, &cp2130_sysfs_atributes_group);
 }
 
 module_init(cp2130_init);
