@@ -1554,12 +1554,14 @@ static int cp2130_probe(struct usb_interface *intf,
 	if (!udev)
 		return -ENODEV;
 
-	dev = kzalloc(sizeof(struct cp2130_device), GFP_KERNEL);
+	dev = devm_kzalloc(&udev->dev, sizeof(struct cp2130_device), GFP_KERNEL);
 	if (!dev)
-		goto err_out;
-	dev->usb_xfer = kmalloc(CP2130_MAX_USB_PACKET_SIZE, GFP_KERNEL);
+		return -ENOMEM;
+
+	dev->usb_xfer = devm_kmalloc(&udev->dev, CP2130_MAX_USB_PACKET_SIZE,
+				     GFP_KERNEL);
 	if (!dev->usb_xfer)
-		goto err_out;
+		return -ENOMEM;
 
 	dev->udev = udev;
 	dev->intf = intf;
@@ -1586,7 +1588,7 @@ static int cp2130_probe(struct usb_interface *intf,
 
 	spi_master = spi_alloc_master(&udev->dev, sizeof(void*));
 	if (!spi_master)
-		goto err_out;
+		return -ENOMEM;
 
 	spi_master_set_devdata(spi_master, (void*) dev);
 
@@ -1603,13 +1605,11 @@ static int cp2130_probe(struct usb_interface *intf,
 	spi_master->cleanup = cp2130_spi_cleanup;
 	spi_master->transfer_one_message = cp2130_spi_transfer_one_message;
 
-	ret = spi_register_master(spi_master);
+	ret = devm_spi_register_master(&udev->dev, spi_master);
 
 	if (ret) {
 		dev_err(&udev->dev, "failed to register SPI master");
-		spi_master_put(spi_master);
-		dev->spi_master = NULL;
-		goto err_out;
+		return -ENOMEM;
 	}
 
 	dev->spi_master = spi_master;
@@ -1634,7 +1634,7 @@ static int cp2130_probe(struct usb_interface *intf,
 	gc->label = dev_name(&spi_master->dev);
 	gc->owner = THIS_MODULE;
 
-	ret = gpiochip_add_data(&dev->gpio_chip, dev);
+	ret = devm_gpiochip_add_data(&udev->dev, &dev->gpio_chip, dev);
 	if (ret)
 		dev_err(&udev->dev, "failed to register gpio chip");
 
@@ -1676,17 +1676,6 @@ static int cp2130_probe(struct usb_interface *intf,
 	schedule_work(&dev->read_otprom);
 
 	return 0;
-
-err_out:
-	if (spi_master)
-		spi_unregister_master(spi_master);
-	if (dev) {
-		if (dev->usb_xfer)
-			kfree(dev->usb_xfer);
-		kfree(dev);
-	}
-
-	return ret;
 }
 
 static void cp2130_disconnect(struct usb_interface *intf)
@@ -1705,15 +1694,12 @@ static void cp2130_disconnect(struct usb_interface *intf)
 	}
 
 	cp2130_gpio_irq_remove(dev);
-	gpiochip_remove_(&dev->gpio_chip);
 	for (i = 0; i < CP2130_NUM_GPIOS; i++) {
 		struct cp2130_channel *chn_cfg = &dev->chn_configs[i];
 		kfree(dev->gpio_names[i]);
 
-		if (chn_cfg->pdata) {
+		if (chn_cfg->pdata)
 			kfree(chn_cfg->pdata);
-			chn_cfg->pdata = NULL;
-		}
 	}
 
 	/* remove sysfs files */
@@ -1725,11 +1711,6 @@ static void cp2130_disconnect(struct usb_interface *intf)
 	                   &dev_attr_otp_rom);
 	device_remove_file(&intf->dev,
 	                   &dev_attr_irq_poll_interval);
-
-	spi_unregister_master(dev->spi_master);
-
-	kfree(dev->usb_xfer);
-	kfree(dev);
 }
 
 module_init(cp2130_init);
