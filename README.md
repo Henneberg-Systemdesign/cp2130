@@ -3,6 +3,7 @@
 * datasheet: https://www.silabs.com/Support%20Documents/TechnicalDocs/CP2130.pdf
 
 * for out-of-tree build please refer to https://www.kernel.org/doc/Documentation/kbuild/modules.txt
+  often 'make -C /usr/src/linux-headers-$(uname -r) M=$PWD' will do the trick
 
 * sysfs API
   * irq_poll_interval: specifies the IRQ/GPIO poll interval in us.
