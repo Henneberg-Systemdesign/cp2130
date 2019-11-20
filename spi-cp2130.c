@@ -966,7 +966,7 @@ out_notfound:
 	ret = (ret < 0) ? ret : 0;
 	if (ret)
 		dev_err(&master->dev, "USB transfer failed with %d", ret);
-	mesg->status = ret
+	mesg->status = ret;
 	spi_finalize_current_message(master); /* signal done to queue */
 	return ret;
 }
