@@ -963,11 +963,12 @@ static int cp2130_spi_transfer_one_message(struct spi_master *master,
 out:
 	mutex_unlock(&dev->usb_bus_lock);
 out_notfound:
-	mesg->status = (ret < 0) ? ret : 0;
-	if (mesg->status)
+	ret = (ret < 0) ? ret : 0;
+	if (ret)
 		dev_err(&master->dev, "USB transfer failed with %d", ret);
+	mesg->status = ret
 	spi_finalize_current_message(master); /* signal done to queue */
-	return mesg->status;
+	return ret;
 }
 
 static int cp2130_irq_from_pin(struct cp2130_device *dev, int pin)
